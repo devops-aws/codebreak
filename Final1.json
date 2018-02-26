@@ -1,0 +1,554 @@
+{
+  "Description": "Stack for 2 tier Architecture",
+"Parameters": {
+  "Nameofbucket" : {
+    "Description" : "Name of the bucket you want to create",
+    "Type" : "String"
+  },
+  "UserEmail": {
+    "Description": "Email address to notify when new logs are published.",
+    "Type": "String"
+  },
+
+"MyWebInstance":{
+"Description": "Instance type for Web Instance",
+"Type": "String",
+"Default": "t2.micro",
+"AllowedValues":[
+"t1.micro",
+"t2.micro"
+]
+}
+},
+
+"Resources": {
+
+  "BillingAlarmNotification": {
+    "Type": "AWS::CloudWatch::Alarm",
+    "Properties": {
+      "AlarmDescription": { "Fn::Join": ["",[
+        "Alarm if AWS spending is over 10$"
+      ]]},
+      "Namespace": "AWS/Billing",
+      "MetricName": "EstimatedCharges",
+      "Dimensions": [{
+        "Name": "Currency",
+        "Value" : "USD"
+      }],
+      "Statistic": "Maximum",
+      "Period": "21600",
+      "EvaluationPeriods": "1",
+      "Threshold": "10",
+      "ComparisonOperator": "GreaterThanThreshold",
+      "AlarmActions": [{
+        "Ref": "NotificationTopic"
+      }],
+      "InsufficientDataActions": [{
+        "Ref": "NotificationTopic"
+      }]
+    }
+  },
+
+
+  "MYEC2S3Role" : {
+    "Type" : "AWS::IAM::Role",
+    "Properties": {
+      "AssumeRolePolicyDocument": {
+        "Statement": [
+           {
+                "Effect": "Allow",
+                "Principal": {
+                   "Service": [ "ec2.amazonaws.com" ]
+                },
+                "Action": [ "sts:AssumeRole" ]
+           }
+         ]
+      },
+      "Path": "/",
+      "RoleName" : "EC2-S3",
+      "Policies" : [
+        {
+          "PolicyName": "MyPolicy",
+          "PolicyDocument": {
+            "Statement":[
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:GetObject",
+                  "s3:PutObject",
+                  "s3:DeleteObject",
+                  "s3:ListObject",
+                  "s3:ListBucket"
+                ],
+                "Resource":  {"Fn::GetAtt" : ["S3Bucket", "Arn"]}
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+
+  "S3Bucket" : {
+    "Type": "AWS::S3::Bucket",
+    "Properties" : {
+      "BucketName" : { "Ref" : "Nameofbucket" }
+    }
+  },
+  "S3BucketPolicy" : {
+    "Type" : "AWS::S3::BucketPolicy",
+    "Properties" : {
+      "Bucket" : {"Ref" : "S3Bucket"},
+      "PolicyDocument": {
+        "Statement" : [
+        {
+          "Sid": "AWSCloudTrailAclCheck",
+          "Effect": "Allow",
+          "Principal": { "Service":"cloudtrail.amazonaws.com"},
+          "Action": "s3:GetBucketAcl",
+          "Resource": { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref":"S3Bucket"}]]}
+        },
+        {
+          "Sid": "AWSCloudTrailWrite",
+          "Effect": "Allow",
+          "Principal": { "Service":"cloudtrail.amazonaws.com"},
+          "Action": "s3:PutObject",
+          "Resource": { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref":"S3Bucket"}, "/AWSLogs/", {"Ref":"AWS::AccountId"}, "/*"]]},
+          "Condition": {
+            "StringEquals": {
+              "s3:x-amz-acl": "bucket-owner-full-control"
+            }
+          }
+        }
+      ]
+      }
+    }
+  },
+
+    "VPC": {
+    "Type": "AWS::EC2::VPC",
+    "Properties": {
+      "EnableDnsSupport": "true",
+      "EnableDnsHostnames": "true",
+      "CidrBlock": "10.0.0.0/16"
+    }
+  },
+  "PublicSubnet": {
+    "DependsOn" : "VPC",
+    "Type": "AWS::EC2::Subnet",
+    "Properties": {
+      "CidrBlock": "10.0.1.0/24",
+      "VpcId": {
+        "Ref": "VPC"
+    },
+    "AvailabilityZone" : "us-east-1a",
+    "MapPublicIpOnLaunch" : "True"
+  }
+},
+  "PublicSubnet1": {
+    "Type": "AWS::EC2::Subnet",
+    "Properties": {
+      "CidrBlock": "10.0.2.0/24",
+      "VpcId": {
+        "Ref": "VPC"
+    },
+    "AvailabilityZone" : "us-east-1b",
+    "MapPublicIpOnLaunch" : "True"
+  }
+},
+  "PrivateSubnet": {
+    "Type": "AWS::EC2::Subnet",
+    "Properties": {
+      "CidrBlock": "10.0.3.0/24",
+      "VpcId": {
+        "Ref": "VPC"
+    },
+    "AvailabilityZone" : "us-east-1a"
+    }
+  },
+
+    "PrivateSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "CidrBlock": "10.0.4.0/24",
+        "VpcId": {
+          "Ref": "VPC"
+      },
+      "AvailabilityZone" : "us-east-1b"
+      }
+    },
+
+  "InternetGateway": {
+    "Type": "AWS::EC2::InternetGateway"
+  },
+  "VPCGatewayAttachment": {
+    "Type": "AWS::EC2::VPCGatewayAttachment",
+    "Properties": {
+      "VpcId": {
+        "Ref": "VPC"
+      },
+      "InternetGatewayId": {
+        "Ref": "InternetGateway"
+      }
+    }
+  },
+  "PublicRouteTable": {
+    "Type": "AWS::EC2::RouteTable",
+    "Properties": {
+      "VpcId": {
+        "Ref": "VPC"
+      }
+    }
+},
+
+"PrivateRouteTable": {
+  "Type": "AWS::EC2::RouteTable",
+  "Properties": {
+    "VpcId": {
+      "Ref": "VPC"
+    }
+  }
+},
+  "PublicRoute": {
+    "Type": "AWS::EC2::Route",
+    "DependsOn": "VPCGatewayAttachment",
+    "Properties": {
+      "RouteTableId": {
+        "Ref": "PublicRouteTable"
+      },
+      "DestinationCidrBlock": "0.0.0.0/0",
+      "GatewayId": {
+        "Ref": "InternetGateway"
+      }
+    }
+  },
+
+  "PrivateRoute": {
+    "Type": "AWS::EC2::Route",
+    "DependsOn": "NATInstance",
+    "Properties": {
+      "RouteTableId": {
+        "Ref": "PrivateRouteTable"
+      },
+      "DestinationCidrBlock": "0.0.0.0/0",
+      "InstanceId": {
+        "Ref": "NATInstance"
+      }
+    }
+  },
+
+  "PublicSubnetRouteTableAssociation": {
+    "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    "Properties": {
+      "SubnetId": {
+        "Ref": "PublicSubnet"
+      },
+        "RouteTableId": {
+        "Ref": "PublicRouteTable"
+      }
+    }
+  },
+
+  "PublicSubnet1RouteTableAssociation": {
+    "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    "Properties": {
+      "SubnetId": {
+        "Ref": "PublicSubnet1"
+      },
+        "RouteTableId": {
+        "Ref": "PublicRouteTable"
+      }
+    }
+  },
+
+  "PrivateSubnetRouteTableAssociation": {
+    "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    "Properties": {
+      "SubnetId": {
+        "Ref": "PrivateSubnet"
+        },
+      "RouteTableId": {
+        "Ref": "PrivateRouteTable"
+      }
+    }
+  },
+
+
+  "PrivateSubnet1RouteTableAssociation": {
+    "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    "Properties": {
+      "SubnetId": {
+      "Ref" : "PrivateSubnet1"
+      },
+      "RouteTableId": {
+        "Ref": "PrivateRouteTable"
+      }
+    }
+  },
+
+
+  "NATInstance" :{
+    "Type" : "AWS::EC2::Instance",
+    "Properties" : {
+      "InstanceType" : "t2.micro",
+      "KeyName" : "siva",
+      "ImageId" : "ami-01623d7b",
+      "SubnetId" : { "Ref" : "PublicSubnet" },
+      "SourceDestCheck" : "false",
+      "SecurityGroupIds" : [{ "Fn::GetAtt" : ["NATInstanceSecurityGroup", "GroupId"] }]
+    }
+  },
+
+  "NATInstanceSecurityGroup" : {
+    "Type" : "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupName" : "NATInstanceSecurityGroup",
+      "GroupDescription" : "Security Group for NAT Instance",
+      "VpcId" : { "Ref" : "VPC" },
+      "SecurityGroupIngress": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": "80",
+          "ToPort": "80",
+          "CidrIp": "0.0.0.0/0"
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": "22",
+          "ToPort": "22",
+          "CidrIp": "0.0.0.0/0"
+        }
+      ]
+    }
+  },
+
+  "DBInstance" :{
+    "Type" : "AWS::EC2::Instance",
+    "Properties" : {
+      "InstanceType" : "t2.micro",
+      "KeyName" : "siva",
+      "ImageId" : "ami-01623d7b",
+      "SubnetId" : { "Ref" : "PrivateSubnet" },
+      "SourceDestCheck" : "false",
+      "SecurityGroupIds" : [{ "Fn::GetAtt" : ["DBInstanceSecurityGroup", "GroupId"] }]
+    }
+  },
+
+  "DBInstance1" :{
+    "Type" : "AWS::EC2::Instance",
+    "Properties" : {
+      "InstanceType" : "t2.micro",
+      "KeyName" : "siva",
+      "ImageId" : "ami-01623d7b",
+      "SubnetId" : { "Ref" : "PrivateSubnet1" },
+      "SourceDestCheck" : "false",
+      "SecurityGroupIds" : [{ "Fn::GetAtt" : ["DBInstanceSecurityGroup", "GroupId"] }]
+    }
+  },
+
+  "DBInstanceSecurityGroup" : {
+    "Type" : "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupName" : "DBInstanceSecurityGroup",
+      "GroupDescription" : "Security Group for DB Instance",
+      "VpcId" : { "Ref" : "VPC" },
+      "SecurityGroupIngress": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": "3306",
+          "ToPort": "3306",
+          "SourceSecurityGroupId": {"Ref":"WebServerSecurityGroup"}
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": "80",
+          "ToPort": "80",
+          "SourceSecurityGroupId": {"Ref":"NATInstanceSecurityGroup"}
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": "22",
+          "ToPort": "22",
+          "SourceSecurityGroupId": {"Ref":"NATInstanceSecurityGroup"}
+        }
+      ]
+    }
+  },
+
+
+  "NotificationTopic" : {
+    "Type": "AWS::SNS::Topic",
+    "Properties": {
+      "Subscription": [ {
+        "Endpoint": { "Ref": "UserEmail" },
+        "Protocol": "email" } ]
+    }
+  },
+  "MyTopicPolicy" : {
+    "Type" : "AWS::SNS::TopicPolicy",
+    "Properties" : {
+      "Topics" : [{"Ref":"NotificationTopic"}],
+      "PolicyDocument" : {
+        "Statement" : [
+          {
+            "Sid": "AWSCloudTrailSNSPolicy",
+            "Effect": "Allow",
+            "Principal": { "Service":"cloudtrail.amazonaws.com"},
+            "Resource": "*",
+            "Action": "SNS:Publish"
+          }
+        ]
+      }
+    }
+  },
+  "MyTrail" :{
+    "DependsOn" : ["S3BucketPolicy", "MyTopicPolicy"],
+    "Type" : "AWS::CloudTrail::Trail",
+    "Properties" : {
+      "S3BucketName" : {"Ref":"S3Bucket"},
+      "SnsTopicName" : {"Fn::GetAtt":["NotificationTopic","TopicName"]},
+      "IsLogging" : "True"
+    }
+  },
+  "LoadBalancerSecurityGroup" : {
+    "Type" : "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupDescription" : "Enable HTTP access on port 80",
+      "VpcId" : { "Ref" : "VPC" },
+      "SecurityGroupIngress" : [ { "IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "0.0.0.0/0" } ]
+    }
+  },
+
+  "WebServerSecurityGroup" : {
+    "Type" : "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupDescription" : "Enable HTTP access on the configured port",
+      "VpcId" : { "Ref" : "VPC" },
+      "SecurityGroupIngress" : [
+        { "IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "SourceSecurityGroupId" : { "Ref" : "LoadBalancerSecurityGroup" }},
+        { "IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0" }
+       ]
+    }
+  },
+
+  "MyElasticLoadBalancer" : {
+    "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+    "Properties" : {
+      "SecurityGroups": [{"Ref": "LoadBalancerSecurityGroup"}],
+      "Subnets": [{ "Ref":"PublicSubnet"},{"Ref":"PublicSubnet1"} ],
+      "Listeners": [{
+        "LoadBalancerPort": "80",
+        "InstancePort": "80",
+        "Protocol": "HTTP"
+      }],
+      "HealthCheck": {
+        "Target": "HTTP:80/index.html",
+        "HealthyThreshold": "3",
+        "UnhealthyThreshold": "5",
+        "Interval": "10",
+        "Timeout": "5"
+      }
+    }
+  },
+
+
+  "SimpleLaunchConfig" : {
+     "Type" : "AWS::AutoScaling::LaunchConfiguration",
+     "Properties" : {
+        "ImageId" : "ami-245ebc59",
+        "KeyName" : "siva",
+        "SecurityGroups" : [ { "Ref" : "WebServerSecurityGroup" }],
+        "InstanceType" : {"Ref":"MyWebInstance"}
+     }
+  },
+
+  "MyWebServerAutoScalingGroup" : {
+     "Type" : "AWS::AutoScaling::AutoScalingGroup",
+     "Properties" : {
+        "AvailabilityZones" : [ { "Fn::GetAtt" :["PublicSubnet", "AvailabilityZone"]},
+                              { "Fn::GetAtt" :["PublicSubnet1", "AvailabilityZone"]}],
+        "VPCZoneIdentifier": [{"Ref":"PublicSubnet"}, {"Ref":"PublicSubnet1"}],
+        "LaunchConfigurationName" : { "Ref" : "SimpleLaunchConfig" },
+        "MinSize" : "2",
+        "MaxSize" : "3",
+        "LoadBalancerNames" : [ { "Ref" : "MyElasticLoadBalancer" }],
+            "NotificationConfigurations" : [
+              {
+                "TopicARN" : { "Ref" : "NotificationTopic" },
+                "NotificationTypes" : [
+                  "autoscaling:EC2_INSTANCE_LAUNCH",
+                  "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+                  "autoscaling:EC2_INSTANCE_TERMINATE",
+                  "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+                ]
+              }
+            ]
+
+     }
+   },
+
+   "WebServerScaleUpPolicy" : {
+         "Type" : "AWS::AutoScaling::ScalingPolicy",
+         "Properties" : {
+           "AdjustmentType" : "ChangeInCapacity",
+           "AutoScalingGroupName" : { "Ref" : "MyWebServerAutoScalingGroup" },
+           "Cooldown" : "60",
+           "ScalingAdjustment" : "1"
+         }
+       },
+       "WebServerScaleDownPolicy" : {
+         "Type" : "AWS::AutoScaling::ScalingPolicy",
+         "Properties" : {
+           "AdjustmentType" : "ChangeInCapacity",
+           "AutoScalingGroupName" : { "Ref" : "MyWebServerAutoScalingGroup" },
+           "Cooldown" : "60",
+           "ScalingAdjustment" : "-1"
+         }
+       },
+
+       "CPUAlarmHigh": {
+        "Type": "AWS::CloudWatch::Alarm",
+        "Properties": {
+           "AlarmDescription": "Scale-up if CPU > 90% for 10 minutes",
+           "MetricName": "CPUUtilization",
+           "Namespace": "AWS/EC2",
+           "Statistic": "Average",
+           "Period": "300",
+           "EvaluationPeriods": "2",
+           "Threshold": "90",
+           "AlarmActions": [ { "Ref": "WebServerScaleUpPolicy" } ],
+           "Dimensions": [
+             {
+               "Name": "AutoScalingGroupName",
+               "Value": { "Ref": "MyWebServerAutoScalingGroup" }
+             }
+           ],
+           "ComparisonOperator": "GreaterThanThreshold"
+         }
+       },
+       "CPUAlarmLow": {
+        "Type": "AWS::CloudWatch::Alarm",
+        "Properties": {
+           "AlarmDescription": "Scale-down if CPU < 70% for 10 minutes",
+           "MetricName": "CPUUtilization",
+           "Namespace": "AWS/EC2",
+           "Statistic": "Average",
+           "Period": "300",
+           "EvaluationPeriods": "2",
+           "Threshold": "70",
+           "AlarmActions": [ { "Ref": "WebServerScaleDownPolicy" } ],
+           "Dimensions": [
+             {
+               "Name": "AutoScalingGroupName",
+               "Value": { "Ref": "MyWebServerAutoScalingGroup" }
+             }
+           ],
+           "ComparisonOperator": "LessThanThreshold"
+         }
+       },
+
+
+
+
+  }
+}
